@@ -1,0 +1,37 @@
+from typing import Annotated, TypedDict
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langchain_ollama import ChatOllama
+
+class State(TypedDict):
+    messages: Annotated[list, add_messages]
+
+
+llm = ChatOllama(model="qwen2.5", base_url="http://localhost:11434")
+
+def call_model(state: State) -> dict:
+    response = llm.invoke(state["messages"])
+    return {"messages": [response]}
+
+
+graph = StateGraph(State)
+graph.add_node("call_model", call_model)
+graph.add_edge(START, "call_model")
+graph.add_edge("call_model", END)
+
+app = graph.compile()
+
+state = {"messages": []}
+
+while True:
+    user_input = input("You: ").strip()
+    if user_input.lower() == "exit":
+        break
+
+    state = app.invoke(
+        {
+            "messages": state["messages"] + [{"role": "user", "content": user_input}]
+        }
+    )
+    print(f"QwenAI: {state['messages'][-1].content}")
+    print("\n")
