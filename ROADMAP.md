@@ -74,8 +74,9 @@ _Goal: empirical evidence for the thesis_
 ---
 
 ## Phase 5 — Tauri desktop app
-_Goal: production-quality UI for the thesis deliverable_
+_Goal: production-quality UI replacing Gradio for the thesis deliverable_
 
-- [ ] Replace Gradio with a Tauri app (Rust backend + native WebView)
-- [ ] Rust backend handles ZeroMQ communication and process lifecycle
-- [ ] Smaller attack surface than Electron; relevant for a security-focused project
+- [ ] Tauri app (Rust backend + native WebView)
+  - Rust backend handles ZeroMQ communication and process lifecycle
+  - Smaller binary and attack surface than Electron — directly relevant for a security-focused project
+  - Replaces Gradio; all UI features carried over
