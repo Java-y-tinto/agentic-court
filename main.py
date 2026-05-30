@@ -34,7 +34,7 @@ def main():
 
         initial: TribunalState = {
             "task": task,
-            "worker_messages": [],
+            "messages": [],
             "worker_output": "",
             "inspector_critique": "",
             "judge_verdict": "",

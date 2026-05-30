@@ -130,7 +130,7 @@ The security architecture (gVisor + ZeroMQ + zero-trust governance) is a first-c
 
 ## Learning experiments
 
-`learning experiments/` contains the incremental research that led to the current architecture:
+`experiments/` contains the incremental research that led to the current architecture:
 
 | Experiment | Topic |
 |------------|-------|

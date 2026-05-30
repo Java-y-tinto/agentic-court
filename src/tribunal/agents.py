@@ -1,6 +1,6 @@
 from langchain_ollama import ChatOllama
 
-from src.logger import logger
+from src.modules.logger import logger
 
 from .state import TribunalState
 from .tools import TOOLS
@@ -41,33 +41,36 @@ def _task_content(state: TribunalState) -> str:
     return content
 
 
-def worker(state: TribunalState) -> dict:
-    wm = state.get("worker_messages", [])
+def _current_cycle_messages(messages: list) -> list:
+    for i in range(len(messages) - 1, -1, -1):
+        if getattr(messages[i], "tool_calls", None):
+            return list(messages[i:])
+    return []
 
-    # A ToolMessage as the last entry means we are mid-cycle continuing after a tool result.
-    is_continuation = bool(wm) and getattr(wm[-1], "type", None) == "tool"
+
+def worker(state: TribunalState) -> dict:
+    all_messages = state.get("messages", [])
+    is_continuation = bool(all_messages) and getattr(all_messages[-1], "type", None) == "tool"
 
     if is_continuation:
-        messages = [
+        llm_messages = [
             {"role": "system", "content": _WORKER_SYSTEM},
             {"role": "user", "content": _task_content(state)},
-            *wm,
+            *_current_cycle_messages(all_messages),
         ]
         iterations_delta = 0
     else:
-        wm = []  # reset for new cycle
-        messages = [
+        llm_messages = [
             {"role": "system", "content": _WORKER_SYSTEM},
             {"role": "user", "content": _task_content(state)},
         ]
         iterations_delta = 1
         logger.info("Worker — cycle %d/%d", state.get("iterations", 0) + 1, state.get("max_iterations", 3))
 
-    response = _llm_with_tools.invoke(messages)
-    new_wm = wm + [response]
+    response = _llm_with_tools.invoke(llm_messages)
 
     updates: dict = {
-        "worker_messages": new_wm,
+        "messages": [response],
         "iterations": state.get("iterations", 0) + iterations_delta,
     }
     if not getattr(response, "tool_calls", None):
@@ -102,5 +105,5 @@ def judge(state: TribunalState) -> dict:
     return {"judge_verdict": verdict}
 
 
-def escalate(state: TribunalState) -> dict:  # noqa: ARG001
+def escalate(_state: TribunalState) -> dict:
     return {}
