@@ -38,8 +38,8 @@ No agent ever holds credentials or host paths directly.
 | **Ollama** | Local LLM inference (`qwen2.5`) — no cloud APIs by default | Implemented |
 | **Python security layer** | Pre-sandbox command validation (regex blocklist) | Implemented |
 | **Gradio** | Web UI for the approval flow and tribunal conversation | Planned (Phase 1) |
-| **Docker** | Per-session container sandbox for tool execution | Planned (Phase 2) |
-| **gVisor** | Container runtime with kernel syscall interception | Planned (Phase 2) |
+| **Docker** | Per-session container sandbox for tool execution | Implemented |
+| **gVisor** | Container runtime with kernel syscall interception | Implemented (`scripts/setup-gvisor.sh`) |
 | **ZeroMQ** | IPC bridge between sandboxed agents and host governance | Planned (Phase 2) |
 | **Redis** | Async approval queue; persistent session state | Planned (Phase 3) |
 | **ChromaDB** | Local vector store for session memory and RAG | Planned (Phase 3) |
@@ -79,14 +79,17 @@ docker compose up -d
 # 3. Pull the model (first run only)
 docker exec ollama ollama pull qwen2.5
 
-# 4. (Optional) Add a Tavily API key for web search
+# 4. Install gVisor and register the runsc Docker runtime (first run only)
+sudo bash scripts/setup-gvisor.sh
+
+# 5. (Optional) Add a Tavily API key for web search
 echo "TAVILY_API_KEY=your_key_here" > .env
 
-# 5. Run
+# 6. Run
 uv run python main.py
 ```
 
-When the worker requests a tool call, you will be prompted to approve or reject it before it executes.
+When the worker requests a tool call, you will be prompted to approve or reject it before it executes inside the session's sandbox container.
 
 ---
 
@@ -94,9 +97,12 @@ When the worker requests a tool call, you will be prompted to approve or reject 
 
 | Tool | Description |
 |------|-------------|
-| `run_python` | Executes a Python snippet in an isolated REPL-style environment |
-| `run_shell` | Executes a shell command (subject to security validation and user approval) |
-| `calculator` | Evaluates a mathematical expression |
+| `run_python` | Executes a Python snippet inside the session sandbox container |
+| `run_shell` | Executes a shell command inside the session sandbox (subject to security validation and user approval) |
+
+Each task runs in its own gVisor container with no network access. The only surface shared with the host is the session workspace (`workspace/<session_id>/`, mounted at `/workspace` inside the container): drop input files there before or during the task, and collect any output files the agent produces from the same directory. The container is destroyed when the task ends; the workspace directory persists.
+
+For development without gVisor, `SANDBOX_RUNTIME=runc uv run python main.py` falls back to the standard runtime (no kernel-level isolation).
 
 ---
 

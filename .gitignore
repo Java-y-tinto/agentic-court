@@ -15,6 +15,9 @@ wheels/
 # Logs
 logs/
 
+# Per-session sandbox workspaces
+workspace/
+
 # Reference documents
 *.pdf
 

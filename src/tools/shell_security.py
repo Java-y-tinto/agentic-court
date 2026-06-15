@@ -1,20 +1,15 @@
 """
-Pre-sandbox command validation. This is a stopgap until gVisor sandboxing is in place.
-It is not a substitute for proper isolation — it is an explicit first filter.
+Shell-command regex blocklist, enforced as AUTO_DENY governance rules (see
+src/tools/policy.py). Defense-in-depth on top of the sandbox, not a substitute
+for it — it only filters the legible path (run_shell), not e.g. os.system from
+run_python, which still requires user approval.
 """
 
-import re
-from typing import NamedTuple
-
-
-class ValidationResult(NamedTuple):
-    allowed: bool
-    reason: str | None  # None when allowed
-
-
-_BLOCKED: list[tuple[str, str]] = [
-    # Recursive / forced deletion
-    (r"\brm\b.{0,30}-[a-zA-Z]*r[a-zA-Z]*f", "recursive force delete"),
+# (pattern, reason) pairs; matched case-insensitively against the tool-call args
+BLOCKED_SHELL_PATTERNS: list[tuple[str, str]] = [
+    # Recursive / forced deletion: rm with both a recursive and a force flag,
+    # in either order, short or long form
+    (r"\brm\b(?=.{0,60}((?<!-)-[a-zA-Z]*r|--recursive))(?=.{0,60}((?<!-)-[a-zA-Z]*f|--force))", "recursive force delete"),
     (r"\brmdir\b.*--ignore-fail", "forced directory removal"),
     # Privilege escalation
     (r"\bsudo\b|\bsu\s+-", "privilege escalation"),
@@ -29,7 +24,7 @@ _BLOCKED: list[tuple[str, str]] = [
     (r":\(\)\s*\{.*\|.*:.*&.*\}", "fork bomb"),
     # Pipe URL to shell
     (r"\bcurl\b.*\|\s*(ba)?sh", "piping URL to shell"),
-    (r"\bwget\b.*-O\s*-\s*\|", "piping URL to shell"),
+    (r"\bwget\b.*-O\s*-.*\|", "piping URL to shell"),
     # Sensitive file access
     (r"/etc/(passwd|shadow|sudoers|crontab)", "access to sensitive system files"),
     # Reverse shells / netcat
@@ -38,10 +33,3 @@ _BLOCKED: list[tuple[str, str]] = [
     # Kernel / boot tampering
     (r"/boot/|\bgrub\b", "boot or kernel file access"),
 ]
-
-
-def validate_shell_command(command: str) -> ValidationResult:
-    for pattern, reason in _BLOCKED:
-        if re.search(pattern, command, re.IGNORECASE | re.DOTALL):
-            return ValidationResult(allowed=False, reason=reason)
-    return ValidationResult(allowed=True, reason=None)

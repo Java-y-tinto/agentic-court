@@ -1,57 +1,14 @@
-import re
-
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from src.classes import PolicyEngine, Rule, Tool, Verdict
-from src.modules.governance import Governance
+from src.tools.policy import make_governance, sandbox_policy_tools, web_search_policy_tool
 
 from .agents import escalate, inspector, judge, worker
 from .state import TribunalState
-from .tools import calculator, run_python, run_shell
 
-
-def _matches(pattern: str):
-    return lambda args: bool(re.search(pattern, str(args), re.IGNORECASE))
-
-
-_tools = [
-    Tool(
-        name="run_python",
-        fn=run_python.func,
-        default=Verdict.REQUIRE_APPROVAL,
-    ),
-    Tool(
-        name="run_shell",
-        fn=run_shell.func,
-        default=Verdict.REQUIRE_APPROVAL,
-        rules=[
-            Rule(_matches(r"\brm\b.{0,30}-[a-zA-Z]*r[a-zA-Z]*f"), "recursive force delete", Verdict.AUTO_DENY),
-            Rule(_matches(r"\brmdir\b.*--ignore-fail"), "forced directory removal", Verdict.AUTO_DENY),
-            Rule(_matches(r"\bsudo\b|\bsu\s+-"), "privilege escalation", Verdict.AUTO_DENY),
-            Rule(_matches(r"\bdd\b.*of=/dev/[sh]d"), "direct disk write", Verdict.AUTO_DENY),
-            Rule(_matches(r"\bmkfs\b|\bmformat\b"), "filesystem formatting", Verdict.AUTO_DENY),
-            Rule(_matches(r">\s*/dev/[sh]d[a-z]"), "redirect to raw disk device", Verdict.AUTO_DENY),
-            Rule(_matches(r"\bchmod\b.{0,20}[0-7]*[67][0-7][0-7]\s+/"), "broad permission change on system path", Verdict.AUTO_DENY),
-            Rule(_matches(r"\bchown\b.*root.*/"), "ownership change to root on system path", Verdict.AUTO_DENY),
-            Rule(_matches(r":\(\)\s*\{.*\|.*:.*&.*\}"), "fork bomb", Verdict.AUTO_DENY),
-            Rule(_matches(r"\bcurl\b.*\|\s*(ba)?sh"), "piping URL to shell", Verdict.AUTO_DENY),
-            Rule(_matches(r"\bwget\b.*-O\s*-\s*\|"), "piping URL to shell", Verdict.AUTO_DENY),
-            Rule(_matches(r"/etc/(passwd|shadow|sudoers|crontab)"), "access to sensitive system files", Verdict.AUTO_DENY),
-            Rule(_matches(r"\bnc\b.*-e|\bnetcat\b.*-e"), "netcat reverse shell", Verdict.AUTO_DENY),
-            Rule(_matches(r"\bbash\b.*-i.*>&"), "interactive reverse shell redirect", Verdict.AUTO_DENY),
-            Rule(_matches(r"/boot/|\bgrub\b"), "boot or kernel file access", Verdict.AUTO_DENY),
-        ],
-    ),
-    Tool(
-        name="calculator",
-        fn=calculator.func,
-        default=Verdict.AUTO_ALLOW,
-    ),
-]
-
-_policy = PolicyEngine(_tools)
-_governance = Governance(_policy)
+# The tribunal exposes the sandboxed execution tools plus host-side web search, so
+# the worker can research and the inspector can adversarially check its findings.
+_governance = make_governance(sandbox_policy_tools() + [web_search_policy_tool()])
 
 
 def _after_worker(state: TribunalState) -> str:
@@ -62,13 +19,20 @@ def _after_worker(state: TribunalState) -> str:
 
 
 def _route_verdict(state: TribunalState) -> str:
-    if state.get("iterations", 0) >= state.get("max_iterations", 3):
-        return "escalate"
-    verdict = state.get("judge_verdict", "").strip()
-    return verdict if verdict in ("accept", "retry", "escalate") else "escalate"
+    # An accepted solution is accepted even on the final iteration; the budget
+    # ceiling only converts further retries into escalation.
+    verdict = state.get("judge_verdict", "")
+    if verdict == "accept":
+        return "accept"
+    if verdict == "retry" and state.get("iterations", 0) < state.get("max_iterations", 3):
+        return "retry"
+    return "escalate"
 
 
-def build():
+def build(checkpointer=MemorySaver()):
+    # checkpointer=None compiles the tribunal as an embeddable subgraph: it then
+    # inherits the parent graph's checkpointer, which is what lets a governance
+    # interrupt raised inside a delegated run surface and resume at the top level.
     graph = StateGraph(TribunalState)
 
     graph.add_node("worker", worker)
@@ -84,7 +48,7 @@ def build():
     graph.add_conditional_edges("judge", _route_verdict, {"accept": END, "retry": "worker", "escalate": "escalate"})
     graph.add_edge("escalate", END)
 
-    return graph.compile(checkpointer=MemorySaver())
+    return graph.compile(checkpointer=checkpointer)
 
 
 app = build()

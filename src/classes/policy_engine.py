@@ -1,9 +1,9 @@
 
 # Policy Engine class. Takes a Tool and orchestrates its policy enforcement. Checks rules and falls back on the default Verdict if none are present
 
-from .Tool import Tool
-from .ToolCall import ToolCall
-from .Verdict import Verdict
+from .tool import Tool
+from .tool_call import ToolCall
+from .verdict import Verdict
 from typing import Callable
 
 

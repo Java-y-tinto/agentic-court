@@ -8,3 +8,4 @@ class TribunalState(MessagesState):
     judge_verdict: str          # "accept" | "retry" | "escalate"
     iterations: int
     max_iterations: int
+    cycle_start: int            # index into messages where the current worker cycle began

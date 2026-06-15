@@ -1,13 +1,24 @@
+import os
 import uuid
+from pathlib import Path
 
+from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
-from src.tribunal.graph import app
-from src.tribunal.state import TribunalState
+from src.agent.graph import app
+from src.modules.sandbox import Sandbox
+from src.modules.web_search import WebSearch
+
+_WORKSPACE_ROOT = Path(__file__).parent / "workspace"
+_SANDBOX_RUNTIME = os.getenv("SANDBOX_RUNTIME", "runsc")
+_MAX_WEB_SEARCHES = int(os.getenv("MAX_WEB_SEARCHES", "10"))
 
 
 def _drain_interrupts(config: dict) -> dict:
-    """Resume any pending governance approvals and return the final state."""
+    """Resume any pending governance approvals and return the final state. A
+    delegated tribunal run interrupts here too — its approvals surface at the
+    top level just like the agent's own tool calls."""
     while True:
         snapshot = app.get_state(config)
         pending = [iv for t in snapshot.tasks for iv in t.interrupts]
@@ -23,39 +34,27 @@ def _drain_interrupts(config: dict) -> dict:
 
 
 def main():
+    load_dotenv()  # TAVILY_API_KEY etc. stay host-side, never enter the sandbox
     print("SentinelAI — type 'exit' to quit\n")
 
-    while True:
-        task = input("Task: ").strip()
-        if not task or task.lower() == "exit":
-            break
+    session_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": session_id}}
 
-        config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+    with (
+        Sandbox(session_id, _WORKSPACE_ROOT, runtime=_SANDBOX_RUNTIME) as sandbox,
+        WebSearch(_MAX_WEB_SEARCHES),
+    ):
+        print(f"Sandbox workspace: {sandbox.workspace} (mounted at /workspace)\n")
 
-        initial: TribunalState = {
-            "task": task,
-            "messages": [],
-            "worker_output": "",
-            "inspector_critique": "",
-            "judge_verdict": "",
-            "iterations": 0,
-            "max_iterations": 3,
-        }
+        while True:
+            user = input("You: ").strip()
+            if not user or user.lower() == "exit":
+                break
 
-        print()
-        app.invoke(initial, config=config)
-        state = _drain_interrupts(config)
-
-        verdict = state.get("judge_verdict", "")
-        output = state.get("worker_output", "No output.")
-
-        if verdict == "accept":
-            print(f"\n[Accepted]\n{output}\n")
-        elif verdict == "escalate":
-            print(f"\n[Escalated — human review needed]\n{output}")
-            print(f"\nInspector: {state.get('inspector_critique', '')}\n")
-        else:
-            print(f"\n[Output]\n{output}\n")
+            app.invoke({"messages": [HumanMessage(user)]}, config=config)
+            state = _drain_interrupts(config)
+            reply = state["messages"][-1].content
+            print(f"\nAssistant: {reply}\n")
 
 
 if __name__ == "__main__":
