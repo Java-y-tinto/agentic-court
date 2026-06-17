@@ -26,7 +26,7 @@ def _drain_interrupts(config: dict) -> dict:
             return snapshot.values
 
         iv = pending[0]
-        print(f"\n  [Approval required]")
+        print("\n  [Approval required]")
         print(f"  Tool : {iv.value['tool']}")
         print(f"  Args : {iv.value['args']}")
         decision = input("  Approve? (yes/no): ").strip()

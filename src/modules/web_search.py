@@ -5,6 +5,7 @@
 # or DuckDuckGo are drop-in replacements behind SearchClient).
 
 import os
+from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Protocol
 
@@ -62,6 +63,18 @@ class WebSearch:
             logger.warning("[WebSearch] query failed: %s", exc)
             return f"Web search failed: {exc}"
         return _format_results(response)
+
+    @contextmanager
+    def activate(self):
+        """Bind this web-search session as active for the current context. For
+        server/UI use, where ContextVars don't cross threads: create once per
+        session (the search budget is per-instance), activate() around each
+        request."""
+        token = _active.set(self)
+        try:
+            yield self
+        finally:
+            _active.reset(token)
 
     def __enter__(self) -> "WebSearch":
         self._token = _active.set(self)

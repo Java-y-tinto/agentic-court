@@ -1,11 +1,6 @@
-from typing import Annotated, TypedDict
+from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
-from langgraph.checkpoint.memory import MemorySaver
 from langchain_ollama import ChatOllama
-from langgraph.types import interrupt, Command
-from langchain.tools import tool
-from langchain.messages import ToolMessage
 
 class TribunalState(TypedDict):
     task : str # Original task set by user
@@ -36,7 +31,7 @@ def worker (state: TribunalState) -> dict:
         print("Worker is retrying")
         content += f"\n\nYour previous Output: {state['worker_output']}"
         content += f"\n\nInspector Critique: {state['inspector_critique']}"
-        content += f"\n\nPlease fix the issues identified by the inspector and redo your code"
+        content += "\n\nPlease fix the issues identified by the inspector and redo your code"
 
 
     messages = [
@@ -108,7 +103,7 @@ def route_verdict(state: TribunalState) -> str:
 # Escalate node (This will do for now)
 
 def escalate(state: TribunalState) -> str:
-    print(f"The judge has decided that the human needs to intervene")
+    print("The judge has decided that the human needs to intervene")
     print(f"Task: {state['task']}")
     print(f"Worker Output: {state['worker_output']}")
     print(f"Inspector Critique: {state['inspector_critique']}")
