@@ -1,14 +1,14 @@
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from src.tools.policy import make_governance, sandbox_policy_tools, web_search_policy_tool
+from src.tools.policy import default_governance
 
 from .agents import escalate, inspector, judge, worker
 from .state import TribunalState
 
-# The tribunal exposes the sandboxed execution tools plus host-side web search, so
-# the worker can research and the inspector can adversarially check its findings.
-_governance = make_governance(sandbox_policy_tools() + [web_search_policy_tool()])
+# Shared with the agent: sandboxed run_python/run_shell plus host-side web search,
+# so the worker can research and the inspector can adversarially check its findings.
+_governance = default_governance()
 
 
 def _after_worker(state: TribunalState) -> str:
@@ -49,6 +49,3 @@ def build(checkpointer=MemorySaver()):
     graph.add_edge("escalate", END)
 
     return graph.compile(checkpointer=checkpointer)
-
-
-app = build()

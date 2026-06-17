@@ -7,10 +7,21 @@
   The untrusted thing is model output, and it never runs anywhere but the container.
   Consequence: no ZeroMQ bridge (nothing lives in the cage except generated code) and
   no need to give the sandbox network access.
-- **Approval at the boundary, not per tool call.** Actions contained by the sandbox are
-  auto-allowed; human approval is reserved for boundary crossings — anything that sends
-  data out (web search, URL fetch) or touches the host. Outbound queries are an egress
-  channel (prompt-injected exfiltration), which is why they prompt.
+- **Approval at the boundary, not per tool call.** Human approval is reserved for actions
+  that touch the host. Actions contained by the sandbox are the security control in
+  themselves (flipping `run_python` / `run_shell` to `AUTO_ALLOW` is the remaining Phase 1
+  step — they still prompt today). Egress is the exception to a per-call prompt:
+  approving every web search is impractical friction for a day-to-day agent, so web
+  search runs host-side under **hard controls** — credential-blind, search-only (no
+  arbitrary URL fetch/POST), per-session rate-limited, and logged — with a hardened
+  system prompt as defense-in-depth against prompt-injected exfiltration, not as the sole
+  control. (Earlier this was an approval gate; the hard-controls model replaced it.)
+- **Agent + tribunal, both untrusted.** A conversational agent handles day-to-day work and
+  delegates complex or correctness-critical tasks to the tribunal. The agent is *not* a
+  trusted supervisor: its tool calls run in the same sandbox and pass through the same
+  governance as the tribunal. The tribunal is embedded as a subgraph compiled without its
+  own checkpointer, so a governance interrupt raised inside a delegated run surfaces and
+  resumes at the top level, and both share the one active sandbox session.
 - **Credential blindness.** API keys live only in the host governance layer, which
   executes boundary tools on the agent's behalf and writes results into the workspace.
   The agent never sees a key, a host path, or the network.
@@ -23,8 +34,11 @@
 ## Done
 
 - [x] Tribunal pattern: worker / inspector / judge loop (LangGraph state machine)
+- [x] Day-to-day agent that delegates complex tasks to the tribunal (`delegate_to_tribunal`); tribunal embedded as a checkpointer-less subgraph so its interrupts surface at the top level, sharing one sandbox session (`src/agent/`)
 - [x] Human-in-the-loop governance with interrupt / approve flow
-- [x] Tool registry: `run_python`, `run_shell`
+- [x] Single governance policy shared by the agent and the tribunal (`src/tools/policy.py`)
+- [x] Tool registry: `run_python`, `run_shell`, `web_search`
+- [x] Host-side web search (Tavily backend, pluggable): credential-blind, search-only, per-session rate-limited, logged; `AUTO_ALLOW` under hard controls rather than a per-call approval gate (`src/modules/web_search.py`)
 - [x] Shell-command regex blocklist enforced as `AUTO_DENY` governance rules
 - [x] Structured logging: per-run timestamped files, DEBUG to file / INFO to console
 - [x] Governance phase 1: `PolicyEngine` with per-tool `Rule` lists and `AUTO_ALLOW` / `REQUIRE_APPROVAL` / `AUTO_DENY` verdicts
@@ -32,33 +46,28 @@
 - [x] gVisor runtime (`runsc`) as default; `SANDBOX_RUNTIME=runc` escape hatch for dev
 - [x] Container hardening: non-root user, `cap_drop=ALL`, `no-new-privileges`, read-only rootfs, tmpfs `/tmp`, resource limits
 - [x] Two-phase governance node (interrupts before execution — no double-execution on LangGraph replay)
-- [x] Configurable via env vars: `OLLAMA_MODEL`, `OLLAMA_BASE_URL`, `JUDGE_MODEL`, `MAX_ITERATIONS`
-- [x] Test suite: policy engine, blocklist, verdict parsing/routing (`uv run pytest`)
+- [x] Configurable via env vars: `OLLAMA_MODEL`, `OLLAMA_BASE_URL`, `JUDGE_MODEL`, `MAX_ITERATIONS`, `MAX_WEB_SEARCHES`
+- [x] Gradio approval-flow UI prototype — chat + Approve/Reject buttons over the same graph, per-session sandbox lifecycle (`app.py`)
+- [x] Test suite: policy engine, blocklist, verdict parsing/routing, agent routing, web search (`uv run pytest`)
 
 ---
 
-## Phase 1 — Usable prototype
-_Goal: something you can demo and use for real tasks_
+## Phase 1 — Finish the prototype
+_Goal: something you can demo and use for real tasks. The core loop, sandbox, governance,
+host-side web search, and a Gradio approval UI are done (see above); what remains:_
 
 - [ ] **Move the approval boundary** — flip `run_python` / `run_shell` to `AUTO_ALLOW`
   - The sandbox is the security control; approving commands inside it adds friction, not security
   - Regex blocklist stays as a logged `AUTO_DENY` defense-in-depth layer
   - `REQUIRE_APPROVAL` becomes the policy for boundary-crossing tools only
 
-- [ ] **Boundary tools, executed host-side by governance** — first one: Tavily web search
-  - Governance runs the tool with the host-held API key and writes results into the workspace; the agent only sees content
-  - `REQUIRE_APPROVAL`: the user reads the outbound query before it leaves (egress gate)
-
 - [ ] **File tools** — `read_file`, `write_file`, `list_dir`
   - Execute inside the sandbox, scoped to `/workspace`; structured tools are more reliable for small models than shell one-liners
 
-- [ ] **Gradio UI** — replace the blocking `input()` REPL
-  - Tribunal conversation visible in real time (worker / inspector / judge turns)
-  - Approval prompts as interactive buttons; requires rethinking interrupt/resume for async
+- [ ] **Finish the Gradio UI** — the approval gate and chat exist; still to add:
+  - Agent / worker / inspector / judge turns visible in real time (currently only the final reply is shown)
   - Drag-and-drop file input → copy into `workspace/<session_id>/`
-  - Output listing/download skips symlinks (agent could plant links to host paths)
-
-- [x] **Configurable model and max_iterations** — env vars `OLLAMA_MODEL`, `OLLAMA_BASE_URL`, `JUDGE_MODEL` (separate judge model mitigates self-evaluation bias), `MAX_ITERATIONS`
+  - Output listing/download skipping symlinks (agent could plant links to host paths)
 
 ---
 

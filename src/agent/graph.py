@@ -5,16 +5,15 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from src.modules.logger import logger
-from src.tools.policy import make_governance, sandbox_policy_tools, web_search_policy_tool
+from src.tools.policy import default_governance
 from src.tribunal.graph import build as build_tribunal
 
 from .agent import agent
 from .state import AgentState
 from .tools import DELEGATE_TOOL_NAME
 
-# The agent exposes the sandboxed tools plus host-side web search; the tribunal
-# (built below) exposes only the sandboxed tools.
-_governance = make_governance(sandbox_policy_tools() + [web_search_policy_tool()])
+# The agent and the delegated tribunal share one governance (the same policy).
+_governance = default_governance()
 
 _MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "3"))
 

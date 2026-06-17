@@ -21,7 +21,8 @@ def calculator(expression: str) -> str:
 @tool
 def run_python(code: str) -> str:
     """Execute python code and return the output. Code must be valid"""
-    import io, contextlib
+    import io
+    import contextlib
     buffer = io.StringIO()
     try:
         with contextlib.redirect_stdout(buffer):
@@ -116,7 +117,7 @@ while True:
         for task in state_snapshot.tasks:
             if task.interrupts:
                 for interrupt_val in task.interrupts:
-                    print(f"\n--- Approval required ---")
+                    print("\n--- Approval required ---")
                     print(f"Tool:     {interrupt_val.value['tool']}")
                     print(f"Args:     {interrupt_val.value['args']}")
                     print(f"Question: {interrupt_val.value['question']}")

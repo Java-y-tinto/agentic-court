@@ -4,11 +4,12 @@
 # collects outputs from it; nothing else crosses the boundary. No network.
 
 import os
+from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
 import docker
-from docker.errors import APIError, ImageNotFound
+from docker.errors import APIError, DockerException, ImageNotFound
 
 from .logger import logger
 
@@ -16,9 +17,31 @@ from .logger import logger
 # offers no per-exec timeout
 _EXEC_TIMEOUT = 30
 
+# Name prefix for session containers, so a startup sweep can find and remove any
+# left behind by a run that exited before it could stop its own sandbox.
+_NAME_PREFIX = "sentinel-sandbox-"
+
 
 class SandboxNotActive(RuntimeError):
     pass
+
+
+def cleanup_stale_sandboxes() -> None:
+    """Remove session containers left over from a previous run (e.g. one killed
+    before it could stop its sandbox). Safe to call at startup; no-op if Docker
+    is unreachable or nothing is stale."""
+    try:
+        client = docker.from_env()
+        stale = client.containers.list(all=True, filters={"name": _NAME_PREFIX})
+    except DockerException as exc:
+        logger.warning("[Sandbox] Could not sweep stale sandboxes: %s", exc)
+        return
+    for container in stale:
+        try:
+            container.remove(force=True)
+            logger.info("[Sandbox] Swept stale container %s", container.name)
+        except APIError as exc:
+            logger.warning("[Sandbox] Failed to remove %s: %s", container.name, exc)
 
 
 # ContextVar instead of a module global so concurrent sessions (each entering
@@ -65,7 +88,7 @@ class Sandbox:
             self._container = self._client.containers.run(
                 self._image,
                 command=["sleep", "infinity"],
-                name=f"sentinel-sandbox-{self._session_id[:8]}",
+                name=f"{_NAME_PREFIX}{self._session_id[:8]}",
                 runtime=self._runtime,
                 network_mode="none",
                 mem_limit="512m",
@@ -125,6 +148,18 @@ class Sandbox:
             self._workspace.rmdir()
         except OSError:
             pass
+
+    @contextmanager
+    def activate(self):
+        """Bind this already-started sandbox as the active one for the current
+        context, without touching the container lifecycle. For server/UI use,
+        where ContextVars don't cross threads: call start() once per session,
+        activate() around each request, stop() on session end."""
+        token = _active.set(self)
+        try:
+            yield self
+        finally:
+            _active.reset(token)
 
     def __enter__(self) -> "Sandbox":
         self.start()

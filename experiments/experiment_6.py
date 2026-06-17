@@ -3,7 +3,6 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain.tools import tool
-from langchain.messages import ToolMessage
 from langchain_ollama import ChatOllama
 
 class State(TypedDict):
@@ -18,7 +17,8 @@ def calculator(expression: str) -> str:
 @tool
 def run_python(code: str) -> str:
     """Execute python code and return the output. Code must be valid"""
-    import io, contextlib
+    import io
+    import contextlib
     buffer = io.StringIO()
     try:
         with contextlib.redirect_stdout(buffer):
